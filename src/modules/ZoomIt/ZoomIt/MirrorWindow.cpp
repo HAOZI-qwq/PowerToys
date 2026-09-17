@@ -278,23 +278,6 @@ bool MirrorWindow::Start( winrt::GraphicsCaptureItem const& item, RECT sourceRec
         m_swapChain = swapChain.as<IDXGISwapChain2>();
         factory->MakeWindowAssociation( m_window, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES );
 
-        if( m_sourceWindow != nullptr )
-        {
-            // Bright green border around the mirrored window so the
-            // presenter can see what's being mirrored, matching the record
-            // border's width but fully opaque and distinct in color. It
-            // follows the window as it moves and resizes.
-            m_borderWindow = CreateWindowExW( WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED,
-                                              m_className, L"ZoomIt DemoMirror Border", WS_POPUP,
-                                              0, 0, 0, 0,
-                                              nullptr, nullptr, GetModuleHandle( nullptr ), this );
-            THROW_LAST_ERROR_IF_NULL( m_borderWindow );
-            SetLayeredWindowAttributes( m_borderWindow, 0, 255, LWA_ALPHA );
-            EnableWindow( m_borderWindow, FALSE );
-            SetWindowDisplayAffinity( m_borderWindow, WDA_EXCLUDEFROMCAPTURE );
-            m_borderTarget = m_sourceRect;
-            UpdateBorderWindow();
-        }
     }
     catch( ... )
     {
@@ -304,11 +287,6 @@ bool MirrorWindow::Start( winrt::GraphicsCaptureItem const& item, RECT sourceRec
 
     ShowWindow( m_backdropWindow, SW_SHOWNA );
     ShowWindow( m_window, SW_SHOWNA );
-    if( m_borderWindow != nullptr )
-    {
-        ShowWindow( m_borderWindow, SW_SHOWNA );
-    }
-
     // The presentation reasserts topmost when a slide show starts, so
     // periodically reclaim it like live zoom does.
     SetTimer( m_window, TOPMOST_TIMER_ID, MIRROR_TOPMOST_TIMER_MS, nullptr );
@@ -349,12 +327,6 @@ void MirrorWindow::Stop()
         DestroyWindow( m_backdropWindow );
         m_backdropWindow = nullptr;
     }
-    if( m_borderWindow != nullptr )
-    {
-        DestroyWindow( m_borderWindow );
-        m_borderWindow = nullptr;
-    }
-
     m_frameWait = nullptr;
     m_sourceTexture = nullptr;
     m_swapChain = nullptr;
@@ -532,38 +504,6 @@ RECT MirrorWindow::ComputeWindowRect() const
 
 //----------------------------------------------------------------------------
 //
-// MirrorWindow::UpdateBorderWindow
-//
-// Positions the border frame just outside the source window rectangle,
-// using a window region so only the frame is visible.
-//
-//----------------------------------------------------------------------------
-void MirrorWindow::UpdateBorderWindow()
-{
-    if( m_borderWindow == nullptr )
-    {
-        return;
-    }
-
-    const RECT target = m_borderTarget;
-    const int width = ScaleForDpi( 2, GetDpiForWindowHelper( m_borderWindow ) );
-    RECT outer = target;
-    InflateRect( &outer, width, width );
-
-    wil::unique_hrgn region{ CreateRectRgn( 0, 0, outer.right - outer.left, outer.bottom - outer.top ) };
-    wil::unique_hrgn inside{ CreateRectRgn( width, width,
-                                            width + ( target.right - target.left ),
-                                            width + ( target.bottom - target.top ) ) };
-    CombineRgn( region.get(), region.get(), inside.get(), RGN_XOR );
-
-    SetWindowPos( m_borderWindow, HWND_TOPMOST, outer.left, outer.top,
-                  outer.right - outer.left, outer.bottom - outer.top, SWP_NOACTIVATE );
-    SetWindowRgn( m_borderWindow, region.release(), TRUE );
-    RedrawWindow( m_borderWindow, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME );
-}
-
-//----------------------------------------------------------------------------
-//
 // MirrorWindow::WindowProc
 //
 //----------------------------------------------------------------------------
@@ -571,22 +511,6 @@ LRESULT MirrorWindow::WindowProc( HWND window, UINT message, WPARAM wordParam, L
 {
     switch( message )
     {
-    case WM_ERASEBKGND:
-        if( window == m_borderWindow )
-        {
-            RECT clientRect;
-            GetClientRect( window, &clientRect );
-            HBRUSH brush = CreateSolidBrush( MIRROR_BORDER_COLOR );
-            FillRect( reinterpret_cast<HDC>( wordParam ), &clientRect, brush );
-            DeleteObject( brush );
-            return 1;
-        }
-        break;
-
-    case WM_MIRROR_BORDER:
-        UpdateBorderWindow();
-        return 0;
-
     case WM_TIMER:
         if( wordParam == TOPMOST_TIMER_ID )
         {
@@ -600,14 +524,14 @@ LRESULT MirrorWindow::WindowProc( HWND window, UINT message, WPARAM wordParam, L
             }
 
             // Static zoom and draw cover the source monitor with a
-            // full-screen topmost window, hiding the green border; reclaim
-            // it like live zoom does for the webcam preview. Skip during
-            // live zoom, whose own reclaim timer would fight this one and
-            // flicker the border.
+            // full-screen topmost window, hiding the caller-owned region or
+            // monitor selection border. Reclaim it like live zoom does for
+            // the webcam preview. Skip during live zoom, whose own reclaim
+            // timer would fight this one and flicker the border.
             if( m_annotationQuery == nullptr ||
                 m_annotationQuery() != AnnotationState::AnnotatingLiveZoom )
             {
-                HWND border = m_borderWindow != nullptr ? m_borderWindow : m_sourceBorderWindow;
+                HWND border = m_sourceBorderWindow;
                 if( border != nullptr && IsWindow( border ))
                 {
                     SetWindowPos( border, HWND_TOPMOST, 0, 0, 0, 0,
@@ -660,17 +584,6 @@ void MirrorWindow::RenderLoop()
         {
             PostMessage( m_notifyWindow, WM_USER_MIRROR_STOP, 0, 0 );
             break;
-        }
-
-        // Track the source window with the border.
-        if( m_sourceWindow != nullptr && m_borderWindow != nullptr )
-        {
-            RECT windowRect = GetWindowFrameRect( m_sourceWindow );
-            if( !IsRectEmpty( &windowRect ) && !EqualRect( &windowRect, &m_borderTarget ))
-            {
-                m_borderTarget = windowRect;
-                PostMessage( m_window, WM_MIRROR_BORDER, 0, 0 );
-            }
         }
 
         // Switch between window and monitor capture as ZoomIt annotation
