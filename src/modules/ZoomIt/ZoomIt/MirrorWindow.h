@@ -18,10 +18,6 @@
 // (which currently run through WM_USER+112 for WM_USER_RECORDING_NO_FRAMES).
 #define WM_USER_MIRROR_STOP		WM_USER+113
 
-// Bright green, distinguishing the mirror border from the yellow
-// record/panorama borders and the orange recording-active border.
-#define MIRROR_BORDER_COLOR		RGB( 0, 255, 0 )
-
 class MirrorWindow
 {
 public:
@@ -63,25 +59,19 @@ private:
     static const UINT_PTR TOPMOST_TIMER_ID = 1;
     // Private to the mirror window: re-fit it to the source's aspect ratio.
     static const UINT WM_MIRROR_RELAYOUT = WM_USER + 1;
-    // Private to the mirror window: move the border to the source window.
-    static const UINT WM_MIRROR_BORDER = WM_USER + 2;
-
     void RenderLoop();
     void RenderFrame();
     bool UpdateAnnotationState();
     bool SwitchCapture( winrt::GraphicsCaptureItem const& item, bool enableCursor );
     RECT ComputeWindowRect() const;
-    void UpdateBorderWindow();
     LRESULT WindowProc( HWND window, UINT message, WPARAM wordParam, LPARAM longParam );
 
     const wchar_t* m_className = L"ZoomitMirrorWindow";
     HWND	m_window = nullptr;
     HWND	m_backdropWindow = nullptr;
-    HWND	m_borderWindow = nullptr;
     HWND	m_notifyWindow = nullptr;
     HWND	m_sourceWindow = nullptr;
     HWND	m_sourceBorderWindow = nullptr;	// caller-owned region/monitor border
-    RECT	m_borderTarget{};	// source window rect the border follows
     RECT	m_sourceRect{};		// mirrored region in screen coordinates
     RECT	m_textureCrop{};	// mirrored region in capture-texture coordinates
     RECT	m_targetRect{};		// target monitor rectangle
